@@ -1,113 +1,154 @@
 package com.zmg.geohash;
 
-import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Set;
 
-public class Encoder {
-	private char[] dictionary = {'0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'};  
-	private static Encoder instance = null;
-	private Encoder(){
-		
-	}
-	/*
-	 * 经纬度编码
-	 * 
-	 */
-	public String encoderCoordinate16(double weidu,double jindu){
-		int weidu1 = (int)(weidu*10000000);
-		int jindu1 = (int) ((weidu>=0)?(10000000.0*jindu*Math.cos(weidu/90*Math.PI/2)):(-10000000.0*jindu*Math.cos(weidu/90*Math.PI/2)));
-		
-		char[] encodestring = new char[16];
-		for(int i=0,position=0,value=0;i<32;++i){
-			int weidutemp = (weidu1>>i&1);
-			int jindutemp = (jindu1>>i&1);
-			int tail = i%2;
-			value |= (weidutemp<<(2*tail) | jindutemp<<(2*tail+1));
-			if(tail == 1 || i==31){
-				encodestring[15-position] = this.dictionary[value];
-				position++;
-				value = 0;
-			}
-		}
-		return String.valueOf(encodestring);
-	}
-	
-	/*
-	 * 返回附近八个点编码
-	 * 说明：这里的八个点是横竖距离是以2*distance为边长的正方形四周的的八个点
-	 * 
-	 */
-	public String[] getNearByEncoders(double weidu,double jindu, double distance){
-		String[] nearbypoints = new String[8];
-		
-		double jinduspace = distance*(Math.cos(weidu/90*Math.PI/2))/1100000;
-		double weiduspace = distance/1100000;
-		
-		double tempjindu1 = (jindu+jinduspace > 180)?180:(jindu+jinduspace);
-		double tempjindu2 = (jindu-jinduspace < -180)?-180:(jindu-jinduspace);
-		double tempweidu1 = (weidu+weiduspace > 90)?90:(weidu+weiduspace);
-		double tempweidu2 = (weidu-weiduspace < -90)?-90:(weidu-weiduspace);
-		
-		nearbypoints[0] = this.encoderCoordinate16(weidu, tempjindu1);
-		nearbypoints[1] = this.encoderCoordinate16(weidu, tempjindu2);
-		nearbypoints[2] = this.encoderCoordinate16(tempweidu1, jindu);
-		nearbypoints[3] = this.encoderCoordinate16(tempweidu2, jindu);
-		
-		nearbypoints[4] = this.encoderCoordinate16(tempweidu1, tempjindu1);
-		nearbypoints[5] = this.encoderCoordinate16(tempweidu1, tempjindu2);
-		nearbypoints[6] = this.encoderCoordinate16(tempweidu2, tempjindu1);
-		nearbypoints[7] = this.encoderCoordinate16(tempweidu2, tempjindu2);
-		return nearbypoints;
-	}
-	
-	/*
-	 * 
-	 * 返回周边八个点加自身点的编码搜索前缀
-	 * 说明：通过这八个点的搜索前缀通过数据库搜索得到的数据并不是严格限制再distance范围内
-	 * 因进位，范围成幂增长，周边八个点的近似选择等造成世纪搜索范围比distance大，因此通过
-	 * like搜索之后如果要进行精确查找和排序，还需要进行耳机距离计算以及排序
-	 * 
-	 * 
-	 */
-	
-	public String[] getNearByPrefix(double weidu,double jindu,double distance){
-		String point = this.encoderCoordinate16(weidu, jindu);
-		String[] pointsnearby = this.getNearByEncoders(weidu, jindu, distance);
-		return this.getNearByPrefix(point, pointsnearby, distance);
-	}
-	public String[] getNearByPrefix(String point, String[] nearbypoints, double distance){
-		double tempdistance = distance * 10;
-		double rate = 4;
-		int level = 0;
-		while(tempdistance > 1.0){
-			tempdistance = tempdistance / rate;
-			level += 1;
-		}
-		level += 2;
-		
-		ArrayList<String> nearbyprefixes = new ArrayList<String>();
-		nearbyprefixes.add(point.substring(0,point.length()-level));
-		int nearbyprefixsize = 1;
-		for(int i=0;i<nearbypoints.length;++i){
-			String nearbyprefix = nearbypoints[i].substring(0, nearbypoints[i].length()-level);
-			int j;
-			for(j=0;j<nearbyprefixsize;++j){
-				if(nearbyprefix.equals(nearbyprefixes.get(j))){
-					break;
-				}
-			}
-			if(j == nearbyprefixsize){
-				nearbyprefixes.add(nearbyprefix);
-				nearbyprefixsize ++;
-			}
-		}
-		String[] retvalue = new String[1];
-		return nearbyprefixes.toArray(retvalue);
-	}
-	
-	public static Encoder getInstance(){
-		if(Encoder.instance == null){
-			Encoder.instance = new Encoder();
-		}
-		return Encoder.instance;
-	}
+/**
+ * Created by iswear on 2017/4/22.
+ */
+public class GeoHashUtil {
+
+    // 单位厘米
+    private static final int EARTH_RADIUS = 637139300;
+
+    // 单位厘米
+    private static final double DISTANCE_PER_LAT = EARTH_RADIUS * 2 * Math.PI / 360;
+
+    // 单位厘米
+    private static final double DISTANCE_PER_LNG_IN_EQUATOR = EARTH_RADIUS * 2 * Math.PI / 360;
+
+    private static final char[] HEX_CHAR = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+            'a', 'b', 'c', 'd', 'e', 'f'};
+
+    /**
+     * 计算两点之间直线距离
+     * @param lat1
+     * @param lng1
+     * @param lat2
+     * @param lng2
+     * @return
+     */
+    public double calculateDistance(double lat1, double lng1, double lat2, double lng2) {
+        double latAng1 = lat1 * Math.PI / 180;
+        double latAng2 = lat2 * Math.PI / 180;
+        double lngAng1 = lng1 * Math.PI / 180;
+        double lngAng2 = lng2 * Math.PI / 180;
+
+        double deltaLatDisPow = Math.pow(Math.abs(Math.sin(latAng1) - Math.sin(latAng2)) * EARTH_RADIUS, 2);
+
+        double deltaLng = Math.abs(lngAng1 - lngAng2);
+        if (deltaLng > Math.PI) {
+            deltaLng = 2 * Math.PI - deltaLng;
+        }
+        double radius1 = EARTH_RADIUS * Math.cos(latAng1);
+        double radius2 = EARTH_RADIUS * Math.cos(latAng2);
+
+        double deltaLngDisPow = Math.pow(radius1, 2) + Math.pow(radius2, 2) - 2 * radius1 * radius2 * Math.cos(deltaLng);
+        return Math.sqrt(deltaLatDisPow + deltaLngDisPow) / 100;
+    }
+
+    /**
+     * 对指定经纬度进行16位编码
+     * @param lat
+     * @param lng
+     * @return
+     *
+     */
+    public String encodeCoordinate(double lat, double lng) {
+        int scaleLat = (int)(lat * DISTANCE_PER_LAT);
+        int scaleLng = (int)(lng * DISTANCE_PER_LNG_IN_EQUATOR);
+        char[] encodeArr = new char[16];
+        for (int i = 0, position = 0; i < 32; i += 2, ++position) {
+            int latTemp1 = (scaleLat >> i & 1);
+            int lngTemp1 = (scaleLng >> i & 1);
+            int latTemp2 = (scaleLat >> (i + 1) & 1);
+            int lngTemp2 = (scaleLng >> (i + 1) & 1);
+            int hexIndex = latTemp1 | (lngTemp1 << 1) | (latTemp2 << 2) | (lngTemp2 << 3);
+            encodeArr[15 - position] = HEX_CHAR[hexIndex];
+        }
+        return String.valueOf(encodeArr);
+    }
+
+    /**
+     * 返回周围八个点的编码
+     * @param lat 纬度
+     * @param lng 经度
+     * @param distance 范围(米)
+     * @return
+     */
+    public String[] encodeAroundCoordinate(double lat, double lng, double distance) {
+        String[] aroundPoints = new String[8];
+
+        double latSpace = distance * 100 / DISTANCE_PER_LAT;
+        double lngSpace;
+        if ((Math.cos(lat * Math.PI / 180)) != 0) {
+            lngSpace = 360;
+        } else {
+            lngSpace = distance * 100 / DISTANCE_PER_LNG_IN_EQUATOR / (Math.cos(lat * Math.PI / 180));
+        }
+
+        double lat1 = (lat + latSpace > 90) ? 90 : (lat + latSpace);
+        double lat2 = (lat - latSpace < -90) ? -90 : (lat - latSpace);
+        double lng1 = (lng + lngSpace > 180) ? 180 : (lng + lngSpace);
+        double lng2 = (lng - lngSpace <-180) ? -180 : (lng - lngSpace);
+
+        aroundPoints[0] = this.encodeCoordinate(lat, lng1);
+        aroundPoints[1] = this.encodeCoordinate(lat, lng2);
+        aroundPoints[2] = this.encodeCoordinate(lat1, lng);
+        aroundPoints[3] = this.encodeCoordinate(lat2, lng);
+
+        aroundPoints[4] = this.encodeCoordinate(lat1, lng1);
+        aroundPoints[5] = this.encodeCoordinate(lat1, lng2);
+        aroundPoints[6] = this.encodeCoordinate(lat2, lng1);
+        aroundPoints[7] = this.encodeCoordinate(lat2, lng2);
+
+        return aroundPoints;
+    }
+
+    /**
+     * 返回前缀
+     * @param lat
+     * @param lng
+     * @param distance
+     * @return
+     */
+    public String[] getAroundEncoderPrefix(double lat, double lng, double distance) {
+        String centerEncoder = this.encodeCoordinate(lat, lng);
+        String[] aroundEncoders = this.encodeAroundCoordinate(lat, lng, distance);
+        return this.getAroundEncoderPrefix(centerEncoder, aroundEncoders, distance);
+    }
+
+    /**
+     * 返回前缀
+     * @param centerEncoder
+     * @param aroundEncoders
+     * @param distance
+     * @return
+     *
+     * 进度范围从  3cm,3*4cm ... 3*4^ncm
+     */
+    private String[] getAroundEncoderPrefix(String centerEncoder, String[] aroundEncoders, double distance) {
+        double tempDistance = distance * 100;
+        int level = 1;
+        while (tempDistance > 3.0) {
+            tempDistance = tempDistance / 4;
+            level += 1;
+        }
+        Set<String> aroundPrefixes = new HashSet<>();
+        aroundPrefixes.add(centerEncoder.substring(0, centerEncoder.length() - level));
+        for (String aroundEncoder : aroundEncoders) {
+            String aroundPrefix = aroundEncoder.substring(0, aroundEncoder.length() - level);
+            aroundPrefixes.add(aroundPrefix);
+        }
+        String[] retValue = new String[aroundPrefixes.size()];
+        return aroundPrefixes.toArray(retValue);
+    }
+
+
+
+    public static GeoHashUtil create() {
+        return new GeoHashUtil();
+    }
+
+
 }
