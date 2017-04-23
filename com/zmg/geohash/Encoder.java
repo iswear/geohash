@@ -20,6 +20,8 @@ public class GeoHashUtil {
     private static final char[] HEX_CHAR = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
             'a', 'b', 'c', 'd', 'e', 'f'};
 
+    private static final char[] FOUR_CHAR = {'a', 'b', 'c', 'd'};
+
     /**
      * 计算两点之间直线距离
      * @param lat1
@@ -54,7 +56,7 @@ public class GeoHashUtil {
      * @return
      *
      */
-    public String encodeCoordinate(double lat, double lng) {
+    public String encodeCoordinate16(double lat, double lng) {
         int scaleLat = (int)(lat * DISTANCE_PER_LAT);
         int scaleLng = (int)(lng * DISTANCE_PER_LNG_IN_EQUATOR);
         char[] encodeArr = new char[16];
@@ -76,7 +78,7 @@ public class GeoHashUtil {
      * @param distance 范围(米)
      * @return
      */
-    public String[] encodeAroundCoordinate(double lat, double lng, double distance) {
+    public String[] encodeAroundCoordinate16(double lat, double lng, double distance) {
         String[] aroundPoints = new String[8];
 
         double latSpace = distance * 100 / DISTANCE_PER_LAT;
@@ -92,15 +94,15 @@ public class GeoHashUtil {
         double lng1 = (lng + lngSpace > 180) ? 180 : (lng + lngSpace);
         double lng2 = (lng - lngSpace <-180) ? -180 : (lng - lngSpace);
 
-        aroundPoints[0] = this.encodeCoordinate(lat, lng1);
-        aroundPoints[1] = this.encodeCoordinate(lat, lng2);
-        aroundPoints[2] = this.encodeCoordinate(lat1, lng);
-        aroundPoints[3] = this.encodeCoordinate(lat2, lng);
+        aroundPoints[0] = this.encodeCoordinate16(lat, lng1);
+        aroundPoints[1] = this.encodeCoordinate16(lat, lng2);
+        aroundPoints[2] = this.encodeCoordinate16(lat1, lng);
+        aroundPoints[3] = this.encodeCoordinate16(lat2, lng);
 
-        aroundPoints[4] = this.encodeCoordinate(lat1, lng1);
-        aroundPoints[5] = this.encodeCoordinate(lat1, lng2);
-        aroundPoints[6] = this.encodeCoordinate(lat2, lng1);
-        aroundPoints[7] = this.encodeCoordinate(lat2, lng2);
+        aroundPoints[4] = this.encodeCoordinate16(lat1, lng1);
+        aroundPoints[5] = this.encodeCoordinate16(lat1, lng2);
+        aroundPoints[6] = this.encodeCoordinate16(lat2, lng1);
+        aroundPoints[7] = this.encodeCoordinate16(lat2, lng2);
 
         return aroundPoints;
     }
@@ -112,10 +114,10 @@ public class GeoHashUtil {
      * @param distance
      * @return
      */
-    public String[] getAroundEncoderPrefix(double lat, double lng, double distance) {
-        String centerEncoder = this.encodeCoordinate(lat, lng);
-        String[] aroundEncoders = this.encodeAroundCoordinate(lat, lng, distance);
-        return this.getAroundEncoderPrefix(centerEncoder, aroundEncoders, distance);
+    public String[] getAroundEncoderPrefix16(double lat, double lng, double distance) {
+        String centerEncoder = this.encodeCoordinate16(lat, lng);
+        String[] aroundEncoders = this.encodeAroundCoordinate16(lat, lng, distance);
+        return this.getAroundEncoderPrefix16(centerEncoder, aroundEncoders, distance);
     }
 
     /**
@@ -125,9 +127,9 @@ public class GeoHashUtil {
      * @param distance
      * @return
      *
-     * 进度范围从  3cm,3*4cm ... 3*4^ncm
+     * 进度范围从  3(cm),3*4(cm) ... 3*4^n(cm)
      */
-    private String[] getAroundEncoderPrefix(String centerEncoder, String[] aroundEncoders, double distance) {
+    private String[] getAroundEncoderPrefix16(String centerEncoder, String[] aroundEncoders, double distance) {
         double tempDistance = distance * 100;
         int level = 1;
         while (tempDistance > 3.0) {
@@ -144,6 +146,101 @@ public class GeoHashUtil {
         return aroundPrefixes.toArray(retValue);
     }
 
+
+    /**
+     * 对指定经纬度进行16位编码
+     * @param lat
+     * @param lng
+     * @return
+     *
+     */
+    public String encodeCoordinate4(double lat, double lng) {
+        int scaleLat = (int)(lat * DISTANCE_PER_LAT);
+        int scaleLng = (int)(lng * DISTANCE_PER_LNG_IN_EQUATOR);
+        char[] encodeArr = new char[32];
+        for (int i = 0, position = 0; i < 32; i += 2, ++position) {
+            int latTemp = scaleLat >> i & 1;
+            int lngTemp = scaleLng >> i & 1;
+            int fourIndex = latTemp | (lngTemp << 1);
+            encodeArr[31 - fourIndex] = FOUR_CHAR[fourIndex];
+        }
+        return String.valueOf(encodeArr);
+    }
+
+    /**
+     * 返回周围八个点的编码
+     * @param lat 纬度
+     * @param lng 经度
+     * @param distance 范围(米)
+     * @return
+     */
+    public String[] encodeAroundCoordinate4(double lat, double lng, double distance) {
+        String[] aroundPoints = new String[8];
+
+        double latSpace = distance * 100 / DISTANCE_PER_LAT;
+        double lngSpace;
+        if ((Math.cos(lat * Math.PI / 180)) != 0) {
+            lngSpace = 360;
+        } else {
+            lngSpace = distance * 100 / DISTANCE_PER_LNG_IN_EQUATOR / (Math.cos(lat * Math.PI / 180));
+        }
+
+        double lat1 = (lat + latSpace > 90) ? 90 : (lat + latSpace);
+        double lat2 = (lat - latSpace < -90) ? -90 : (lat - latSpace);
+        double lng1 = (lng + lngSpace > 180) ? 180 : (lng + lngSpace);
+        double lng2 = (lng - lngSpace <-180) ? -180 : (lng - lngSpace);
+
+        aroundPoints[0] = this.encodeCoordinate4(lat, lng1);
+        aroundPoints[1] = this.encodeCoordinate4(lat, lng2);
+        aroundPoints[2] = this.encodeCoordinate4(lat1, lng);
+        aroundPoints[3] = this.encodeCoordinate4(lat2, lng);
+
+        aroundPoints[4] = this.encodeCoordinate4(lat1, lng1);
+        aroundPoints[5] = this.encodeCoordinate4(lat1, lng2);
+        aroundPoints[6] = this.encodeCoordinate4(lat2, lng1);
+        aroundPoints[7] = this.encodeCoordinate4(lat2, lng2);
+
+        return aroundPoints;
+    }
+
+    /**
+     * 返回前缀
+     * @param lat
+     * @param lng
+     * @param distance
+     * @return
+     */
+    public String[] getAroundEncoderPrefix4(double lat, double lng, double distance) {
+        String centerEncoder = this.encodeCoordinate4(lat, lng);
+        String[] aroundEncoders = this.encodeAroundCoordinate4(lat, lng, distance);
+        return this.getAroundEncoderPrefix4(centerEncoder, aroundEncoders, distance);
+    }
+
+    /**
+     * 返回前缀
+     * @param centerEncoder
+     * @param aroundEncoders
+     * @param distance
+     * @return
+     *
+     * 进度范围从  1(cm),2(cm) ... 2^n(cm)
+     */
+    private String[] getAroundEncoderPrefix4(String centerEncoder, String[] aroundEncoders, double distance) {
+        double tempDistance = distance * 100;
+        int level = 1;
+        while (tempDistance > 1.0) {
+            tempDistance = tempDistance / 2;
+            level += 1;
+        }
+        Set<String> aroundPrefixes = new HashSet<>();
+        aroundPrefixes.add(centerEncoder.substring(0, centerEncoder.length() - level));
+        for (String aroundEncoder : aroundEncoders) {
+            String aroundPrefix = aroundEncoder.substring(0, aroundEncoder.length() - level);
+            aroundPrefixes.add(aroundPrefix);
+        }
+        String[] retValue = new String[aroundPrefixes.size()];
+        return aroundPrefixes.toArray(retValue);
+    }
 
 
     public static GeoHashUtil create() {
